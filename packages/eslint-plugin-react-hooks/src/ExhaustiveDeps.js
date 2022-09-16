@@ -222,11 +222,17 @@ export default {
         }
         const id = def.node.id;
         const {name} = callee;
+        if (__EXPERIMENTAL__) {
+          if (
+            (name === 'experimental_useEvent' || name === 'useEvent') &&
+            id.type === 'Identifier'
+          ) {
+            // useEvent() return value is stable.
+            return true;
+          }
+        }
         if (name === 'useRef' && id.type === 'Identifier') {
           // useRef() return value is stable.
-          return true;
-        } else if (name === 'useEvent' && id.type === 'Identifier') {
-          // useEvent() return value is stable.
           return true;
         } else if (name === 'useState' || name === 'useReducer') {
           // Only consider second value in initializing tuple stable.
