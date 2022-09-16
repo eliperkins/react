@@ -100,6 +100,34 @@ function isInsideComponentOrHook(node) {
   return false;
 }
 
+function isUseEventIdentifier(node) {
+  return node.name === 'useEvent' || node.name === 'experimental_useEvent';
+}
+
+function isUseEventVariableDeclarator(node) {
+  return (
+    node.type === 'VariableDeclarator' &&
+    node.init &&
+    node.init.type === 'CallExpression' &&
+    node.init.callee.type === 'Identifier' &&
+    isUseEventIdentifier(node.init.callee)
+  );
+}
+
+function recursivelyFindVariableInScope(scope, name) {
+  const stack = [scope];
+  while (stack.length > 0) {
+    const currScope = stack.pop();
+    const variable = currScope.set.get(name);
+    if (variable != null) {
+      return variable;
+    }
+    if (currScope.upper != null) {
+      stack.push(currScope.upper);
+    }
+  }
+}
+
 export default {
   meta: {
     type: 'problem',
@@ -110,8 +138,28 @@ export default {
     },
   },
   create(context) {
+    const MAX_USE_EVENT_ANCESTOR_DEPTH = 5;
     const codePathReactHooksMapStack = [];
     const codePathSegmentStack = [];
+
+    // Recursively walk up the current scope until we find the function
+    // definition, and report if the function was created with useEvent.
+    function reportOnUseEventDirectReferences(scope, ident) {
+      const variable = recursivelyFindVariableInScope(scope, ident.name);
+      if (variable != null) {
+        variable.defs.forEach(def => {
+          if (isUseEventVariableDeclarator(def.node)) {
+            context.report({
+              node: ident,
+              message:
+                'Functions created with React Hook "useEvent" must only be invoked in a ' +
+                '"useEffect" or closure.',
+            });
+          }
+        });
+      }
+    }
+
     return {
       // Maintain code segment path stack as we traverse.
       onCodePathSegmentStart: segment => codePathSegmentStack.push(segment),
@@ -521,6 +569,61 @@ export default {
             reactHooksMap.set(codePathSegment, reactHooks);
           }
           reactHooks.push(node.callee);
+        }
+
+        // Check if a function created with useEvent is invoked within
+        // a useEffect or closure.
+        const scope = context.getScope();
+        const variable = recursivelyFindVariableInScope(
+          scope,
+          node.callee.name,
+        );
+        if (variable) {
+          const isUseEvent = variable.defs.some(def => {
+            return isUseEventVariableDeclarator(def.node);
+          });
+          if (isUseEvent) {
+            let depth = 0;
+            for (const ancestor of context.getAncestors()) {
+              // For performance reasons we don't want to walk up
+              // every single ancestor node.
+              if (depth++ > MAX_USE_EVENT_ANCESTOR_DEPTH) {
+                break;
+              }
+              if (
+                ancestor.type === 'CallExpression' &&
+                ancestor.callee.name !== 'useEffect'
+              ) {
+                context.report({
+                  node: node.callee,
+                  message:
+                    'Functions created with React Hook "useEvent" must only be invoked in a ' +
+                    '"useEffect" or closure.',
+                });
+                break;
+              }
+            }
+          }
+        }
+      },
+
+      JSXExpressionContainer(node) {
+        const scope = context.getScope();
+        // <Child onClick={onClick} />
+        if (node.expression.type === 'Identifier') {
+          reportOnUseEventDirectReferences(scope, node.expression);
+        }
+
+        // <Child onClick={onClick.bind(null)} />
+        if (
+          node.expression.type === 'CallExpression' &&
+          node.expression.callee.type === 'MemberExpression' &&
+          node.expression.callee.object.type === 'Identifier'
+        ) {
+          reportOnUseEventDirectReferences(
+            scope,
+            node.expression.callee.object,
+          );
         }
       },
     };

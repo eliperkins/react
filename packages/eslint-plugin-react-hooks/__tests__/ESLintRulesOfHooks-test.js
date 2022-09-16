@@ -406,6 +406,36 @@ const tests = {
         const [myState, setMyState] = useState(null);
       }
     `,
+    `
+      // Valid because functions created with useEvent can be called in a useEffect.
+      function MyComponent({ theme }) {
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        useEffect(() => {
+          onClick();
+        });
+      }
+    `,
+    `
+      // Valid because functions created with useEvent can be called in closures.
+      function MyComponent({ theme }) {
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        return <Child onClick={() => onClick()}></Child>;
+      }
+    `,
+    `
+      // Valid because functions created with useEvent can be called in closures.
+      function MyComponent({ theme }) {
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        const onClick2 = () => { onClick() };
+        return <Child onClick={onClick2}></Child>;
+      }
+    `,
   ],
   invalid: [
     {
@@ -449,7 +479,7 @@ const tests = {
     },
     {
       code: `
-        // This is a false positive (it's valid) that unfortunately 
+        // This is a false positive (it's valid) that unfortunately
         // we cannot avoid. Prefer to rename it to not start with "use"
         class Foo extends Component {
           render() {
@@ -971,6 +1001,70 @@ const tests = {
       `,
       errors: [classError('useState')],
     },
+    {
+      code: `
+        function MyComponent({ theme }) {
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          return <Child onClick={onClick}></Child>;
+        }
+      `,
+      errors: [useEventError()],
+    },
+    {
+      code: `
+        function MyComponent({ theme }) {
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          let jsx;
+          if (theme === 'dark') {
+            jsx = <Child onClick={onClick} className="dark" />
+          } else {
+            jsx = <Child onClick={onClick} className="light" />
+          }
+          const jsx2 = theme === 'dark'
+            ? <Child onClick={onClick} className="dark" />
+            : <Child onClick={onClick} className="light" />;
+
+          return jsx;
+        }
+      `,
+      errors: [
+        useEventError(),
+        useEventError(),
+        useEventError(),
+        useEventError(),
+      ],
+    },
+    {
+      code: `
+        function MyComponent({ theme }) {
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          return <Child onClick={onClick.bind(null)}></Child>;
+        }
+      `,
+      errors: [useEventError()],
+    },
+    {
+      code: `
+        function MyComponent({ theme }) {
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          useMyHook(() => {
+            onClick();
+          });
+          const customOnClick = useMyHook(() => {
+            onClick();
+          });
+        }
+      `,
+      errors: [useEventError(), useEventError()],
+    },
   ],
 };
 
@@ -1028,6 +1122,14 @@ function classError(hook) {
       `React Hook "${hook}" cannot be called in a class component. React Hooks ` +
       'must be called in a React function component or a custom React ' +
       'Hook function.',
+  };
+}
+
+function useEventError() {
+  return {
+    message:
+      'Functions created with React Hook "useEvent" must only be invoked in a ' +
+      '"useEffect" or closure.',
   };
 }
 
