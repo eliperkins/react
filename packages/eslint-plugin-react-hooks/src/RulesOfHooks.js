@@ -562,9 +562,9 @@ export default {
         // OK - useEffect(() => { ...onClick... }, []);
         if (node.callee.name === 'useEffect' && node.arguments.length > 0) {
           // Subtraverse here so we don't need to visit every Identifier node.
-          traverse(context, node, path => {
-            if (path.node.type === 'Identifier') {
-              resolveUseEventViolation(path.node);
+          traverse(context, node, childNode => {
+            if (childNode.type === 'Identifier') {
+              resolveUseEventViolation(childNode);
             }
           });
         }
@@ -582,10 +582,10 @@ export default {
       Program(node) {
         // useEvent: First pass to record all definitions of useEvent functions. This needs to run
         // prior to the second pass so a subtraversal is necessary here.
-        traverse(context, node, path => {
+        traverse(context, node, childNode => {
           // const onClick = useEvent(() => ...);
-          if (isUseEventVariableDeclarator(path.node)) {
-            addUseEventViolation(path.node.id);
+          if (isUseEventVariableDeclarator(childNode)) {
+            addUseEventViolation(childNode.id);
           }
         });
       },

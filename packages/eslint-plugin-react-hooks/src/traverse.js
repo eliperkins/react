@@ -1,4 +1,9 @@
 /**
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
  * Adapted from https://github.com/discord/eslint-traverse
  *
  * MIT License
@@ -28,51 +33,33 @@
 
 'use strict';
 
-export const SKIP = Symbol('skip');
-export const STOP = Symbol('stop');
-
 export function traverse(context, node, visitor) {
   const allVisitorKeys = context.getSourceCode().visitorKeys;
   const queue = [];
 
-  queue.push({
-    node,
-    parent: null,
-    parentKey: null,
-    parentPath: null,
-  });
+  queue.push(node);
 
   while (queue.length) {
-    const currentPath = queue.shift();
+    const currentNode = queue.shift();
 
-    const result = visitor(currentPath);
-    if (result === STOP) break;
-    if (result === SKIP) continue;
+    visitor(currentNode);
 
-    const visitorKeys = allVisitorKeys[currentPath.node.type];
+    const visitorKeys = allVisitorKeys[currentNode.type];
     if (!visitorKeys) continue;
 
     for (const visitorKey of visitorKeys) {
-      const child = currentPath.node[visitorKey];
+      const child = currentNode[visitorKey];
 
       if (!child) {
         continue;
-      } else if (Array.isArray(child)) {
+      }
+
+      if (Array.isArray(child)) {
         for (const item of child) {
-          queue.push({
-            node: item,
-            parent: currentPath.node,
-            parentKey: visitorKey,
-            parentPath: currentPath,
-          });
+          queue.push(item);
         }
       } else {
-        queue.push({
-          node: child,
-          parent: currentPath.node,
-          parentKey: visitorKey,
-          parentPath: currentPath,
-        });
+        queue.push(child);
       }
     }
   }
