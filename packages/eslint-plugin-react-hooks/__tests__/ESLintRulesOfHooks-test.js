@@ -459,6 +459,17 @@ const tests = {
         </>
       }
     `,
+    `
+      function MyComponent({ theme }) {
+        function Child() {
+          return <Foo onClick={() => onClick()} />;
+        }
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        return <Child />;
+      }
+    `,
   ],
   invalid: [
     {
@@ -1042,6 +1053,20 @@ const tests = {
             showNotification(theme);
           });
           return <Child onClick={onClick.bind(null)}></Child>;
+        }
+      `,
+      errors: [useEventError('onClick')],
+    },
+    {
+      code: `
+        function MyComponent({ theme }) {
+          function Child() {
+            return <Foo onClick={onClick} />;
+          }
+          const onClick = useEvent(() => {
+            showNotification(theme);
+          });
+          return <Child />;
         }
       `,
       errors: [useEventError('onClick')],
