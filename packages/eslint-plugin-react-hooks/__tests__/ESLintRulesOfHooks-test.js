@@ -436,6 +436,26 @@ const tests = {
         return <Child onClick={onClick2}></Child>;
       }
     `,
+    `
+      // Valid because functions created with useEvent can be passed by reference in useEffect.
+      function MyComponent({ theme }) {
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        useEffect(() => {
+          let id = setInterval(onClick, 100);
+          return () => clearInterval(onClick);
+        }, []);
+      }
+    `,
+    `
+      function MyComponent({ theme }) {
+        const onClick = useEvent(() => {
+          showNotification(theme);
+        });
+        return <Child onClick={onClick.call(null)} />
+      }
+    `,
   ],
   invalid: [
     {
@@ -1010,7 +1030,7 @@ const tests = {
           return <Child onClick={onClick}></Child>;
         }
       `,
-      errors: [useEventError()],
+      errors: [useEventError('onClick')],
     },
     {
       code: `
@@ -1031,12 +1051,7 @@ const tests = {
           return jsx;
         }
       `,
-      errors: [
-        useEventError(),
-        useEventError(),
-        useEventError(),
-        useEventError(),
-      ],
+      errors: [useEventError('onClick')],
     },
     {
       code: `
@@ -1047,23 +1062,7 @@ const tests = {
           return <Child onClick={onClick.bind(null)}></Child>;
         }
       `,
-      errors: [useEventError()],
-    },
-    {
-      code: `
-        function MyComponent({ theme }) {
-          const onClick = useEvent(() => {
-            showNotification(theme);
-          });
-          useMyHook(() => {
-            onClick();
-          });
-          const customOnClick = useMyHook(() => {
-            onClick();
-          });
-        }
-      `,
-      errors: [useEventError(), useEventError()],
+      errors: [useEventError('onClick')],
     },
   ],
 };
@@ -1125,11 +1124,11 @@ function classError(hook) {
   };
 }
 
-function useEventError() {
+function useEventError(fn) {
   return {
     message:
-      'Functions created with React Hook "useEvent" must only be invoked in a ' +
-      '"useEffect" or closure.',
+      `Functions created with React Hook "useEvent" must be invoked locally in the component it's ` +
+      `defined in. \`${fn}\` is a useEvent function that is being passed by reference.`,
   };
 }
 

@@ -10,6 +10,8 @@
 
 'use strict';
 
+import {traverse} from './traverse';
+
 /**
  * Catch all identifiers that begin with "use" followed by an uppercase Latin
  * character to exclude identifiers like "user".
@@ -101,7 +103,10 @@ function isInsideComponentOrHook(node) {
 }
 
 function isUseEventIdentifier(node) {
-  return node.name === 'useEvent' || node.name === 'experimental_useEvent';
+  return (
+    node.type === 'Identifier' &&
+    (node.name === 'useEvent' || node.name === 'experimental_useEvent')
+  );
 }
 
 function isUseEventVariableDeclarator(node) {
@@ -109,23 +114,9 @@ function isUseEventVariableDeclarator(node) {
     node.type === 'VariableDeclarator' &&
     node.init &&
     node.init.type === 'CallExpression' &&
-    node.init.callee.type === 'Identifier' &&
+    node.init.callee &&
     isUseEventIdentifier(node.init.callee)
   );
-}
-
-function recursivelyFindVariableInScope(scope, name) {
-  const stack = [scope];
-  while (stack.length > 0) {
-    const currScope = stack.pop();
-    const variable = currScope.set.get(name);
-    if (variable != null) {
-      return variable;
-    }
-    if (currScope.upper != null) {
-      stack.push(currScope.upper);
-    }
-  }
 }
 
 export default {
@@ -138,25 +129,17 @@ export default {
     },
   },
   create(context) {
-    const MAX_USE_EVENT_ANCESTOR_DEPTH = 5;
     const codePathReactHooksMapStack = [];
     const codePathSegmentStack = [];
+    const useEventViolations = new Map();
 
-    // Recursively walk up the current scope until we find the function
-    // definition, and report if the function was created with useEvent.
-    function reportOnUseEventDirectReferences(scope, ident) {
-      const variable = recursivelyFindVariableInScope(scope, ident.name);
-      if (variable != null) {
-        variable.defs.forEach(def => {
-          if (isUseEventVariableDeclarator(def.node)) {
-            context.report({
-              node: ident,
-              message:
-                'Functions created with React Hook "useEvent" must only be invoked in a ' +
-                '"useEffect" or closure.',
-            });
-          }
-        });
+    function addUseEventViolation(ident) {
+      useEventViolations.set(ident.name, ident);
+    }
+
+    function resolveUseEventViolation(ident) {
+      if (useEventViolations.has(ident.name)) {
+        useEventViolations.set(ident.name, null);
       }
     }
 
@@ -571,59 +554,56 @@ export default {
           reactHooks.push(node.callee);
         }
 
-        // Check if a function created with useEvent is invoked within
-        // a useEffect or closure.
-        const scope = context.getScope();
-        const variable = recursivelyFindVariableInScope(
-          scope,
-          node.callee.name,
-        );
-        if (variable) {
-          const isUseEvent = variable.defs.some(def => {
-            return isUseEventVariableDeclarator(def.node);
-          });
-          if (isUseEvent) {
-            let depth = 0;
-            for (const ancestor of context.getAncestors()) {
-              // For performance reasons we don't want to walk up
-              // every single ancestor node.
-              if (depth++ > MAX_USE_EVENT_ANCESTOR_DEPTH) {
-                break;
-              }
-              if (
-                ancestor.type === 'CallExpression' &&
-                ancestor.callee.name !== 'useEffect'
-              ) {
-                context.report({
-                  node: node.callee,
-                  message:
-                    'Functions created with React Hook "useEvent" must only be invoked in a ' +
-                    '"useEffect" or closure.',
-                });
-                break;
-              }
+        // useEvent: Resolve a function created with useEvent that is invoked locally at least once.
+        // OK - onClick();
+        resolveUseEventViolation(node.callee);
+
+        // useEvent: useEvent functions can be passed by reference within useEffect.
+        // OK - useEffect(() => { ...onClick... }, []);
+        if (node.callee.name === 'useEffect' && node.arguments.length > 0) {
+          // Subtraverse here so we don't need to visit every Identifier node.
+          traverse(context, node, path => {
+            if (path.node.type === 'Identifier') {
+              resolveUseEventViolation(path.node);
             }
-          }
+          });
         }
       },
 
-      JSXExpressionContainer(node) {
-        const scope = context.getScope();
-        // <Child onClick={onClick} />
-        if (node.expression.type === 'Identifier') {
-          reportOnUseEventDirectReferences(scope, node.expression);
+      MemberExpression(node) {
+        // useEvent: weird, but OK.
+        // OK - onClick.call(...);
+        // NOT OK - onClick.bind(...);
+        if (node.property.name === 'call' || node.property.name === 'apply') {
+          resolveUseEventViolation(node.object);
         }
+      },
 
-        // <Child onClick={onClick.bind(null)} />
-        if (
-          node.expression.type === 'CallExpression' &&
-          node.expression.callee.type === 'MemberExpression' &&
-          node.expression.callee.object.type === 'Identifier'
-        ) {
-          reportOnUseEventDirectReferences(
-            scope,
-            node.expression.callee.object,
-          );
+      Program(node) {
+        // useEvent: First pass to record all definitions of useEvent functions. This needs to run
+        // prior to the second pass so a subtraversal is necessary here.
+        traverse(context, node, path => {
+          // const onClick = useEvent(() => ...);
+          if (isUseEventVariableDeclarator(path.node)) {
+            addUseEventViolation(path.node.id);
+          }
+        });
+      },
+
+      'Program:exit'(_node) {
+        for (const node of useEventViolations.values()) {
+          if (node == null) {
+            // Violation was resolved.
+            continue;
+          }
+          context.report({
+            node,
+            message:
+              'Functions created with React Hook "useEvent" must be invoked locally in the ' +
+              `component it's defined in. \`${context.getSource(
+                node,
+              )}\` is a useEvent function that is being passed by reference.`,
+          });
         }
       },
     };
