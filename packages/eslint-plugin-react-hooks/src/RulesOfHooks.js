@@ -572,8 +572,7 @@ export default {
 
       MemberExpression(node) {
         // useEvent: weird, but OK.
-        // OK - onClick.call(...);
-        // NOT OK - onClick.bind(...);
+        // OK - onClick.{call,apply}(...);
         if (node.property.name === 'call' || node.property.name === 'apply') {
           resolveUseEventViolation(node.object);
         }
