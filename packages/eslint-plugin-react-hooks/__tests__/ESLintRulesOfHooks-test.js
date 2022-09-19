@@ -453,7 +453,10 @@ const tests = {
         const onClick = useEvent(() => {
           showNotification(theme);
         });
-        return <Child onClick={onClick.call(null)} />
+        return <>
+          <Child onClick={onClick.call()} />
+          <Child onClick={onClick.apply()} />
+        </>
       }
     `,
   ],
