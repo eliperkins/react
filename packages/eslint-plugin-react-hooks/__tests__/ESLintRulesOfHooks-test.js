@@ -1038,27 +1038,6 @@ const tests = {
           const onClick = useEvent(() => {
             showNotification(theme);
           });
-          let jsx;
-          if (theme === 'dark') {
-            jsx = <Child onClick={onClick} className="dark" />
-          } else {
-            jsx = <Child onClick={onClick} className="light" />
-          }
-          const jsx2 = theme === 'dark'
-            ? <Child onClick={onClick} className="dark" />
-            : <Child onClick={onClick} className="light" />;
-
-          return jsx;
-        }
-      `,
-      errors: [useEventError('onClick')],
-    },
-    {
-      code: `
-        function MyComponent({ theme }) {
-          const onClick = useEvent(() => {
-            showNotification(theme);
-          });
           return <Child onClick={onClick.bind(null)}></Child>;
         }
       `,
